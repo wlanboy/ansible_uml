@@ -1,0 +1,14 @@
+[project]
+name = "ansible-uml"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.119.0",
+    "gitpython>=3.1.45",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.20",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.37.0",
+]

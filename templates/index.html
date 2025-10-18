@@ -3,13 +3,30 @@
 <head>
     <title>Ansible Visualizer</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dom-to-image@2.6.0/src/dom-to-image.min.js"></script>
     <script>
         mermaid.initialize({ startOnLoad: true });
 
         function selectAll(name) {
             document.querySelectorAll(`input[name="${name}"]`).forEach(cb => cb.checked = true);
         }
+
+        function downloadPNG() {
+            const node = document.getElementById("mermaid-container");
+            domtoimage.toPng(node)
+                .then(function (dataUrl) {
+                    const link = document.createElement('a');
+                    link.download = 'diagram.png';
+                    link.href = dataUrl;
+                    link.click();
+                })
+                .catch(function (error) {
+                    console.error('Fehler beim Export:', error);
+                    alert("Export fehlgeschlagen. Bitte Diagramm prüfen.");
+                });
+        }
     </script>
+
     <style>
         body { font-family: sans-serif; margin: 2em; }
         h1, h2, h3 { color: #333; }
@@ -61,9 +78,10 @@
     <!-- Mermaid-Diagramm -->
     {% if diagram %}
     <h2>Mermaid Diagramm</h2>
-    <div class="mermaid">
+    <div id="mermaid-container" class="mermaid">
         {{ diagram }}
     </div>
+    <button onclick="downloadPNG()">Download as PNG</button>
     {% endif %}
 </body>
 </html>

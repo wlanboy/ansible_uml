@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ansible Visualizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: true });
+
+        function selectAll(name) {
+            document.querySelectorAll(`input[name="${name}"]`).forEach(cb => cb.checked = true);
+        }
+    </script>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        h1, h2, h3 { color: #333; }
+        .mermaid { background: #f9f9f9; padding: 1em; border: 1px solid #ccc; white-space: pre-wrap; }
+        form { margin-bottom: 2em; }
+        button { margin-top: 1em; }
+        input[type="text"] { padding: 0.4em; }
+    </style>
+</head>
+<body>
+    <h1>Ansible Visualizer</h1>
+
+    <!-- Repo-Eingabe -->
+    <form method="post" action="/scan">
+        <label for="repo_input"><strong>Git-URL oder lokaler Pfad:</strong></label><br>
+        <input type="text" name="repo_input" id="repo_input" style="width: 60%;" required>
+        <button type="submit">Scan starten</button>
+    </form>
+
+    <!-- Auswahl Inventories & Playbooks -->
+    {% if inventories and playbooks %}
+    <form method="post" action="/generate">
+        <input type="hidden" name="repo_path" value="{{ repo_path }}">
+
+        <h3>Inventories</h3>
+        <button type="button" onclick="selectAll('inventory')">Alle auswählen</button><br>
+        {% for inv in inventories %}
+            <input type="checkbox" name="inventory" value="{{ inv }}"> {{ inv }}<br>
+        {% endfor %}
+
+        <h3>Playbooks</h3>
+        <button type="button" onclick="selectAll('playbook')">Alle auswählen</button><br>
+        {% for pb in playbooks %}
+            <input type="checkbox" name="playbook" value="{{ pb }}"> {{ pb }}<br>
+        {% endfor %}
+
+        <h3>Diagramm-Orientierung</h3>
+        <select name="layout">
+            <option value="TD">Vertikal (Top → Down)</option>
+            <option value="LR">Horizontal (Left → Right)</option>
+            <option value="BT">Vertikal (Bottom → Top)</option>
+            <option value="RL">Horizontal (Right → Left)</option>
+        </select>
+
+        <button type="submit">Diagramm erstellen</button>
+    </form>
+    {% endif %}
+
+    <!-- Mermaid-Diagramm -->
+    {% if diagram %}
+    <h2>Mermaid Diagramm</h2>
+    <div class="mermaid">
+        {{ diagram }}
+    </div>
+    {% endif %}
+</body>
+</html>

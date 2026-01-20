@@ -303,7 +303,8 @@ async def generate_diagram(
         return templates.TemplateResponse("index.html", {
             "request": request,
             "diagram": diagram,
-            "repo_path": repo_path
+            "repo_path": repo_path,
+            "layout": layout
         })
     except Exception as e:
         logger.error(f"Fehler beim Generieren: {e}")

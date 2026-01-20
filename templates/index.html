@@ -25,6 +25,16 @@
                     alert("Export fehlgeschlagen. Bitte Diagramm prüfen.");
                 });
         }
+
+        function changeLayout(newLayout) {
+            const container = document.getElementById("mermaid-container");
+            const originalDiagram = container.getAttribute("data-diagram");
+            const newDiagram = originalDiagram.replace(/^graph \w+/, "graph " + newLayout);
+
+            container.innerHTML = newDiagram;
+            container.removeAttribute("data-processed");
+            mermaid.init(undefined, container);
+        }
     </script>
 
     <style>
@@ -87,10 +97,19 @@
     <!-- Mermaid-Diagramm -->
     {% if diagram %}
     <h2>Mermaid Diagramm</h2>
-    <div id="mermaid-container" class="mermaid">
+    <div style="margin-bottom: 1em;">
+        <label><strong>Orientierung:</strong></label>
+        <select onchange="changeLayout(this.value)">
+            <option value="TD" {% if layout == 'TD' %}selected{% endif %}>Vertikal (Top → Down)</option>
+            <option value="LR" {% if layout == 'LR' or not layout %}selected{% endif %}>Horizontal (Left → Right)</option>
+            <option value="BT" {% if layout == 'BT' %}selected{% endif %}>Vertikal (Bottom → Top)</option>
+            <option value="RL" {% if layout == 'RL' %}selected{% endif %}>Horizontal (Right → Left)</option>
+        </select>
+        <button onclick="downloadPNG()">Download as PNG</button>
+    </div>
+    <div id="mermaid-container" class="mermaid" data-diagram="{{ diagram | e }}">
         {{ diagram }}
     </div>
-    <button onclick="downloadPNG()">Download as PNG</button>
     {% endif %}
 </body>
 </html>

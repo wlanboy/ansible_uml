@@ -5,7 +5,11 @@
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dom-to-image@2.6.0/src/dom-to-image.min.js"></script>
     <script>
-        mermaid.initialize({ startOnLoad: true });
+        mermaid.initialize({
+            startOnLoad: true,
+            maxTextSize: 500000,
+            maxEdges: 5000
+        });
 
         function selectAll(name) {
             document.querySelectorAll(`input[name="${name}"]`).forEach(cb => cb.checked = true);

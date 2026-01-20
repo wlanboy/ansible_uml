@@ -34,10 +34,19 @@
         form { margin-bottom: 2em; }
         button { margin-top: 1em; }
         input[type="text"] { padding: 0.4em; }
+        .error-box { background: #fee; border: 1px solid #c00; color: #900; padding: 1em; margin: 1em 0; border-radius: 4px; }
+        .error-box h3 { color: #900; margin-top: 0; }
     </style>
 </head>
 <body>
     <h1>Ansible Visualizer</h1>
+
+    {% if error %}
+    <div class="error-box">
+        <h3>Fehler</h3>
+        <p>{{ error }}</p>
+    </div>
+    {% endif %}
 
     <!-- Repo-Eingabe -->
     <form method="post" action="/scan">

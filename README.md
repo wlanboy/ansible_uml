@@ -16,8 +16,10 @@ source .venv/bin/activate
 ```
 ### 2. Run the app
 ```sh
+uv lock --upgrade
 uv sync
-.venv/bin/uvicorn main:app --reload --port 8000
+uv pip compile pyproject.toml -o requirements.txt
+uv run uvicorn main:app --reload --port 8000
 ```
 
 ### 4. Open your browser at http://127.0.0.1:8000 and use the web UI to:

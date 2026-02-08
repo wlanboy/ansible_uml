@@ -100,14 +100,19 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
                     task, pb_id, lines, nodes, connections, task_counter
                 )
 
-            # Handlers
+            # Handlers (nur Node-Erstellung, Verbindungen kommen über notify)
             for handler_name in play["handlers"]:
                 handler_id = sanitize(f"handler_{handler_name}")
                 if handler_id not in nodes.handlers:
                     nodes.handlers.add(handler_id)
                     label = escape_label(handler_name)
                     lines.append(f'        {handler_id}(["fa:fa-bell {label}"])')
-                    lines.append(f'        {pb_id} -.->|"notifies"| {handler_id}')
+
+        # import_playbook-Verbindungen
+        for imp_path in pb_data.get("imported_playbooks", []):
+            imp_name = os.path.basename(imp_path)
+            imp_id = sanitize(imp_name)
+            connections.append(f'    {pb_id} -->|"imports"| {imp_id}')
 
     lines.append('    end')
 
@@ -132,6 +137,13 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
             lines.append(f'        {rt_task_id}["{label}"]')
             lines.append(f'        {role_id} --> {rt_task_id}')
             task_counter += 1
+
+    # Role-Dependencies
+    for role_name, deps in data.role_dependencies.items():
+        role_id = sanitize(f"role_{role_name}")
+        for dep in deps:
+            dep_id = sanitize(f"role_{dep}")
+            connections.append(f'    {role_id} -->|"depends"| {dep_id}')
 
     lines.append('    end')
 
@@ -184,10 +196,31 @@ def _process_task(
             )
         return task_counter + 1
 
+    if task_type == "block":
+        block_id = f"{parent_id}_block_{task_counter}"
+        nodes.tasks.append(block_id)
+        lines.append(f'        {block_id}["{label}"]')
+        lines.append(f'        {parent_id} --> {block_id}')
+        task_counter += 1
+        for bt in task.get("block_tasks", []):
+            task_counter = _process_task(
+                bt, block_id, lines, nodes, connections, task_counter
+            )
+        return task_counter
+
     # Normaler Task
     nodes.tasks.append(task_id)
     lines.append(f'        {task_id}["{label}"]')
     lines.append(f'        {parent_id} --> {task_id}')
+
+    # Notify-Verbindungen
+    for handler_name in task.get("notify", []):
+        handler_id = sanitize(f"handler_{handler_name}")
+        if handler_id not in nodes.handlers:
+            nodes.handlers.add(handler_id)
+            lines.append(f'        {handler_id}(["fa:fa-bell {escape_label(handler_name)}"])')
+        connections.append(f'    {task_id} -.->|"notifies"| {handler_id}')
+
     return task_counter + 1
 
 

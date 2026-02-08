@@ -342,6 +342,90 @@ class TestExtractTaskInfo:
         assert len(inner["block_tasks"]) == 1
         assert inner["block_tasks"][0]["name"] == "Deep task"
 
+    def test_when_string(self):
+        task = {"name": "Conditional", "debug": {"msg": "hi"}, "when": "ansible_os_family == 'Debian'"}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["when"] == ["ansible_os_family == 'Debian'"]
+
+    def test_when_list(self):
+        task = {"name": "Multi when", "debug": {"msg": "hi"}, "when": ["condition_a", "condition_b"]}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["when"] == ["condition_a", "condition_b"]
+
+    def test_no_when(self):
+        task = {"name": "No when", "debug": {"msg": "hi"}}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert "when" not in info
+
+    def test_tags_string(self):
+        task = {"name": "Tagged", "debug": {"msg": "hi"}, "tags": "deploy"}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["tags"] == ["deploy"]
+
+    def test_tags_list(self):
+        task = {"name": "Multi tags", "debug": {"msg": "hi"}, "tags": ["deploy", "web"]}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["tags"] == ["deploy", "web"]
+
+    def test_no_tags(self):
+        task = {"name": "No tags", "debug": {"msg": "hi"}}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert "tags" not in info
+
+    def test_become_true(self):
+        task = {"name": "Privileged", "apt": {"name": "nginx"}, "become": True}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["become"] is True
+        assert "become_user" not in info
+
+    def test_become_with_user(self):
+        task = {"name": "As postgres", "command": "psql", "become": True, "become_user": "postgres"}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["become"] is True
+        assert info["become_user"] == "postgres"
+
+    def test_become_false(self):
+        task = {"name": "No become", "debug": {"msg": "hi"}, "become": False}
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert "become" not in info
+
+    def test_all_attributes_combined(self):
+        task = {
+            "name": "Full task",
+            "apt": {"name": "nginx"},
+            "when": "ansible_os_family == 'Debian'",
+            "tags": ["deploy", "web"],
+            "become": True,
+            "become_user": "root",
+            "notify": "Restart nginx"
+        }
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["when"] == ["ansible_os_family == 'Debian'"]
+        assert info["tags"] == ["deploy", "web"]
+        assert info["become"] is True
+        assert info["become_user"] == "root"
+        assert info["notify"] == ["Restart nginx"]
+
+    def test_when_on_block(self):
+        task = {
+            "name": "Conditional block",
+            "when": "install_nginx",
+            "block": [{"name": "Install", "apt": {"name": "nginx"}}]
+        }
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["type"] == "block"
+        assert info["when"] == ["install_nginx"]
+
+    def test_tags_on_block(self):
+        task = {
+            "name": "Tagged block",
+            "tags": ["setup"],
+            "block": [{"name": "Step", "command": "cmd"}]
+        }
+        info = extract_task_info(task, "/tmp", "/tmp/pb.yml")
+        assert info["type"] == "block"
+        assert info["tags"] == ["setup"]
+
 
 # ============================================================
 # load_included_tasks
@@ -575,6 +659,64 @@ class TestParsePlaybook:
         assert len(result["plays"]) == 2
         assert result["plays"][0]["hosts"] == "webservers"
         assert result["plays"][1]["hosts"] == "databases"
+
+    def test_play_become(self, tmp_dir):
+        pb = [{"hosts": "all", "become": True, "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert result["plays"][0]["become"] is True
+        assert "become_user" not in result["plays"][0]
+
+    def test_play_become_with_user(self, tmp_dir):
+        pb = [{"hosts": "all", "become": True, "become_user": "deploy", "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert result["plays"][0]["become"] is True
+        assert result["plays"][0]["become_user"] == "deploy"
+
+    def test_play_tags_string(self, tmp_dir):
+        pb = [{"hosts": "all", "tags": "deploy", "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert result["plays"][0]["tags"] == ["deploy"]
+
+    def test_play_tags_list(self, tmp_dir):
+        pb = [{"hosts": "all", "tags": ["deploy", "web"], "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert result["plays"][0]["tags"] == ["deploy", "web"]
+
+    def test_play_no_become(self, tmp_dir):
+        pb = [{"hosts": "all", "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert "become" not in result["plays"][0]
+
+    def test_play_all_attributes(self, tmp_dir):
+        pb = [{
+            "hosts": "webservers",
+            "become": True,
+            "become_user": "root",
+            "tags": ["production"],
+            "tasks": [
+                {"name": "Install", "apt": {"name": "nginx"}, "when": "install_pkg", "tags": ["packages"]}
+            ]
+        }]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        play = result["plays"][0]
+        assert play["become"] is True
+        assert play["become_user"] == "root"
+        assert play["tags"] == ["production"]
+        task = play["tasks"][0]
+        assert task["when"] == ["install_pkg"]
+        assert task["tags"] == ["packages"]
 
 
 # ============================================================

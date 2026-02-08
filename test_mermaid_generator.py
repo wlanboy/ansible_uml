@@ -6,6 +6,7 @@ from ansible_parser import AnsibleData
 from mermaid_generator import (
     DiagramNodes,
     _apply_classes,
+    _build_task_label,
     _process_task,
     escape_label,
     generate_diagram,
@@ -159,6 +160,106 @@ class TestProcessTask:
         task = {"name": "Task", "type": "task"}
         _, _, _, counter = self._run(task)
         assert counter == 1
+
+    def test_task_with_when(self):
+        task = {"name": "Conditional", "type": "task", "when": ["ansible_os == 'Debian'"]}
+        lines, nodes, connections, counter = self._run(task)
+        label_line = [l for l in lines if "Conditional" in l][0]
+        assert "fa:fa-question" in label_line
+        assert "when:" in label_line
+
+    def test_task_with_tags(self):
+        task = {"name": "Tagged", "type": "task", "tags": ["deploy", "web"]}
+        lines, nodes, connections, counter = self._run(task)
+        label_line = [l for l in lines if "Tagged" in l][0]
+        assert "fa:fa-tags" in label_line
+        assert "deploy" in label_line
+
+    def test_task_with_become(self):
+        task = {"name": "Privileged", "type": "task", "become": True}
+        lines, nodes, connections, counter = self._run(task)
+        label_line = [l for l in lines if "Privileged" in l][0]
+        assert "fa:fa-key" in label_line
+        assert "root" in label_line
+
+    def test_task_with_become_user(self):
+        task = {"name": "As postgres", "type": "task", "become": True, "become_user": "postgres"}
+        lines, nodes, connections, counter = self._run(task)
+        label_line = [l for l in lines if "As postgres" in l][0]
+        assert "fa:fa-key" in label_line
+        assert "postgres" in label_line
+
+    def test_block_with_when(self):
+        task = {
+            "name": "Conditional block",
+            "type": "block",
+            "when": ["install_nginx"],
+            "block_tasks": [{"name": "Step", "type": "task"}]
+        }
+        lines, nodes, connections, counter = self._run(task)
+        block_line = [l for l in lines if "Conditional block" in l][0]
+        assert "fa:fa-question" in block_line
+
+    def test_task_all_attributes(self):
+        task = {
+            "name": "Full task",
+            "type": "task",
+            "when": ["condition"],
+            "tags": ["deploy"],
+            "become": True,
+            "become_user": "root"
+        }
+        lines, nodes, connections, counter = self._run(task)
+        label_line = [l for l in lines if "Full task" in l][0]
+        assert "fa:fa-question" in label_line
+        assert "fa:fa-tags" in label_line
+        assert "fa:fa-key" in label_line
+
+
+# ============================================================
+# _build_task_label
+# ============================================================
+
+class TestBuildTaskLabel:
+    def test_no_extras(self):
+        task = {"name": "Simple", "type": "task"}
+        assert _build_task_label(task, "Simple") == "Simple"
+
+    def test_when_single(self):
+        task = {"when": ["x == 1"]}
+        label = _build_task_label(task, "Task")
+        assert "when: x == 1" in label
+        assert "<br/>" in label
+
+    def test_when_multiple_and(self):
+        task = {"when": ["a", "b"]}
+        label = _build_task_label(task, "Task")
+        assert "a AND b" in label
+
+    def test_tags(self):
+        task = {"tags": ["deploy", "web"]}
+        label = _build_task_label(task, "Task")
+        assert "deploy, web" in label
+
+    def test_become_default_root(self):
+        task = {"become": True}
+        label = _build_task_label(task, "Task")
+        assert "fa:fa-key root" in label
+
+    def test_become_custom_user(self):
+        task = {"become": True, "become_user": "postgres"}
+        label = _build_task_label(task, "Task")
+        assert "fa:fa-key postgres" in label
+
+    def test_all_combined(self):
+        task = {"when": ["cond"], "tags": ["t1"], "become": True, "become_user": "deploy"}
+        label = _build_task_label(task, "Base")
+        parts = label.split("<br/>")
+        assert len(parts) == 4
+        assert parts[0] == "Base"
+        assert "when:" in parts[1]
+        assert "t1" in parts[2]
+        assert "deploy" in parts[3]
 
 
 # ============================================================
@@ -343,6 +444,34 @@ class TestGenerateDiagram:
         assert "db1" in diagram
         assert "webservers" in diagram
         assert "databases" in diagram
+
+    def test_play_become_in_diagram(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["become"] = True
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["become_user"] = "deploy"
+        diagram = generate_diagram(data)
+        assert "fa:fa-key deploy" in diagram
+
+    def test_play_tags_in_diagram(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["tags"] = ["production"]
+        diagram = generate_diagram(data)
+        assert "fa:fa-tags production" in diagram
+
+    def test_play_become_default_root(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["become"] = True
+        diagram = generate_diagram(data)
+        assert "fa:fa-key root" in diagram
+
+    def test_task_when_in_diagram(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["tasks"] = [
+            {"name": "Conditional install", "type": "task", "when": ["ansible_os == 'Debian'"]}
+        ]
+        diagram = generate_diagram(data)
+        assert "fa:fa-question" in diagram
+        assert "when:" in diagram
 
     def test_class_assignments(self):
         data = self._minimal_data()

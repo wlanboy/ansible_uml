@@ -86,7 +86,18 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
             hosts_target = play.get("hosts")
             if hosts_target:
                 group_id = sanitize(str(hosts_target))
-                connections.append(f'    {group_id} -->|"runs"| {pb_id}')
+                # Play-Level Annotations am Edge
+                edge_parts = []
+                if play.get("become"):
+                    become_user = play.get("become_user", "root")
+                    edge_parts.append(f"fa:fa-key {become_user}")
+                play_tags = play.get("tags")
+                if play_tags:
+                    edge_parts.append(f"fa:fa-tags {', '.join(str(t) for t in play_tags)}")
+                edge_label = "runs"
+                if edge_parts:
+                    edge_label += " | " + " | ".join(edge_parts)
+                connections.append(f'    {group_id} -->|"{edge_label}"| {pb_id}')
 
             # Roles verbinden
             for role_name in play["roles"]:
@@ -159,6 +170,26 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
     return "\n".join(lines)
 
 
+def _build_task_label(task: dict, base_label: str) -> str:
+    """Baut ein erweitertes Label mit when/tags/become-Infos."""
+    parts = [base_label]
+
+    when = task.get("when")
+    if when:
+        condition = " AND ".join(str(w) for w in when)
+        parts.append(f"fa:fa-question when: {escape_label(condition)}")
+
+    tags = task.get("tags")
+    if tags:
+        parts.append(f"fa:fa-tags {', '.join(str(t) for t in tags)}")
+
+    if task.get("become"):
+        become_user = task.get("become_user", "root")
+        parts.append(f"fa:fa-key {become_user}")
+
+    return "<br/>".join(parts)
+
+
 def _process_task(
     task: dict,
     parent_id: str,
@@ -198,8 +229,9 @@ def _process_task(
 
     if task_type == "block":
         block_id = f"{parent_id}_block_{task_counter}"
+        block_label = _build_task_label(task, label)
         nodes.tasks.append(block_id)
-        lines.append(f'        {block_id}["{label}"]')
+        lines.append(f'        {block_id}["{block_label}"]')
         lines.append(f'        {parent_id} --> {block_id}')
         task_counter += 1
         for bt in task.get("block_tasks", []):
@@ -209,8 +241,9 @@ def _process_task(
         return task_counter
 
     # Normaler Task
+    full_label = _build_task_label(task, label)
     nodes.tasks.append(task_id)
-    lines.append(f'        {task_id}["{label}"]')
+    lines.append(f'        {task_id}["{full_label}"]')
     lines.append(f'        {parent_id} --> {task_id}')
 
     # Notify-Verbindungen

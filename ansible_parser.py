@@ -201,6 +201,21 @@ def parse_playbook(pb_path: str, repo_path: str) -> dict:
             "handlers": []
         }
 
+        # Play-Level become/become_user
+        if play.get("become"):
+            play_info["become"] = True
+            become_user = play.get("become_user")
+            if become_user:
+                play_info["become_user"] = str(become_user)
+
+        # Play-Level tags
+        play_tags = play.get("tags")
+        if play_tags is not None:
+            if isinstance(play_tags, list):
+                play_info["tags"] = play_tags
+            else:
+                play_info["tags"] = [str(play_tags)]
+
         # Roles extrahieren
         for role in play.get("roles", []) or []:
             if isinstance(role, dict):
@@ -235,6 +250,29 @@ def extract_task_info(task: dict, repo_path: str, base_path: str) -> dict:
         "name": task.get("name", "unnamed_task"),
         "type": "task"
     }
+
+    # when extrahieren
+    when = task.get("when")
+    if when is not None:
+        if isinstance(when, list):
+            task_info["when"] = when
+        else:
+            task_info["when"] = [str(when)]
+
+    # tags extrahieren
+    tags = task.get("tags")
+    if tags is not None:
+        if isinstance(tags, list):
+            task_info["tags"] = tags
+        else:
+            task_info["tags"] = [str(tags)]
+
+    # become extrahieren
+    if task.get("become"):
+        task_info["become"] = True
+        become_user = task.get("become_user")
+        if become_user:
+            task_info["become_user"] = str(become_user)
 
     # notify extrahieren
     notify = task.get("notify")

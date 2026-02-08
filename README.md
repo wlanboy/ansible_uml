@@ -28,7 +28,7 @@ Enter a Git URL or a local repo path and click "Scan starten"
 Select inventories and playbooks, choose layout, and click "Diagramm erstellen"
 
 ### Example Screenshot
-![Example Screenshot](screenshots/ansible_uml.png)
+![Example Screenshot](screenshots/mermaid.png)
 
 ## What it does (brief)
 

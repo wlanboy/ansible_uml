@@ -18,6 +18,8 @@ STYLES = [
     "classDef taskClass fill:#fafafa,stroke:#616161,stroke-width:1px",
     "classDef handlerClass fill:#fff8e1,stroke:#ff6f00,stroke-width:1px,stroke-dasharray: 5 5",
     "classDef includeClass fill:#e0f2f1,stroke:#00695c,stroke-width:1px",
+    "classDef tagClass fill:#e8eaf6,stroke:#283593,stroke-width:1px,stroke-dasharray: 3 3",
+    "classDef becomeClass fill:#fce4ec,stroke:#b71c1c,stroke-width:1px,stroke-dasharray: 3 3",
 ]
 
 
@@ -31,6 +33,8 @@ class DiagramNodes:
     tasks: list = field(default_factory=list)
     handlers: set = field(default_factory=set)
     includes: set = field(default_factory=set)
+    tags: set = field(default_factory=set)
+    becomes: set = field(default_factory=set)
 
 
 def sanitize(text: str) -> str:
@@ -82,22 +86,16 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
         nodes.playbooks.append(pb_id)
         lines.append(f'        {pb_id}["fa:fa-book {pb_name}"]')
 
-        for play in pb_data["plays"]:
+        for play_idx, play in enumerate(pb_data["plays"]):
             hosts_target = play.get("hosts")
             if hosts_target:
                 group_id = sanitize(str(hosts_target))
-                # Play-Level Annotations am Edge
-                edge_parts = []
-                if play.get("become"):
-                    become_user = play.get("become_user", "root")
-                    edge_parts.append(f"fa:fa-key {become_user}")
-                play_tags = play.get("tags")
-                if play_tags:
-                    edge_parts.append(f"fa:fa-tags {', '.join(str(t) for t in play_tags)}")
-                edge_label = "runs"
-                if edge_parts:
-                    edge_label += " | " + " | ".join(edge_parts)
-                connections.append(f'    {group_id} -->|"{edge_label}"| {pb_id}')
+                connections.append(f'    {group_id} -->|"runs"| {pb_id}')
+
+            # Play-Level Tags/Become als eigene Nodes
+            play_node_id = f"{pb_id}_play_{play_idx}"
+            _add_tag_nodes(play, pb_id, lines, nodes)
+            _add_become_node(play, pb_id, lines, nodes)
 
             # Roles verbinden
             for role_name in play["roles"]:
@@ -171,7 +169,7 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
 
 
 def _build_task_label(task: dict, base_label: str) -> str:
-    """Baut ein erweitertes Label mit when/tags/become-Infos."""
+    """Baut ein erweitertes Label mit when-Info."""
     parts = [base_label]
 
     when = task.get("when")
@@ -179,15 +177,30 @@ def _build_task_label(task: dict, base_label: str) -> str:
         condition = " AND ".join(str(w) for w in when)
         parts.append(f"fa:fa-question when: {escape_label(condition)}")
 
-    tags = task.get("tags")
-    if tags:
-        parts.append(f"fa:fa-tags {', '.join(str(t) for t in tags)}")
-
-    if task.get("become"):
-        become_user = task.get("become_user", "root")
-        parts.append(f"fa:fa-key {become_user}")
-
     return "<br/>".join(parts)
+
+
+def _add_tag_nodes(task: dict, owner_id: str, lines: list, nodes: DiagramNodes) -> None:
+    """Erzeugt eigene Tag-Nodes für einen Task/Block."""
+    tags = task.get("tags")
+    if not tags:
+        return
+    tag_label = ", ".join(str(t) for t in tags)
+    tag_id = f"{owner_id}_tags"
+    nodes.tags.add(tag_id)
+    lines.append(f'        {tag_id}>"fa:fa-tags {escape_label(tag_label)}"]')
+    lines.append(f'        {owner_id} -.- {tag_id}')
+
+
+def _add_become_node(task: dict, owner_id: str, lines: list, nodes: DiagramNodes) -> None:
+    """Erzeugt einen eigenen Become-Node für einen Task/Block."""
+    if not task.get("become"):
+        return
+    become_user = task.get("become_user", "root")
+    become_id = f"{owner_id}_become"
+    nodes.becomes.add(become_id)
+    lines.append(f'        {become_id}(["fa:fa-key {escape_label(become_user)}"])')
+    lines.append(f'        {owner_id} -.- {become_id}')
 
 
 def _process_task(
@@ -233,6 +246,8 @@ def _process_task(
         nodes.tasks.append(block_id)
         lines.append(f'        {block_id}["{block_label}"]')
         lines.append(f'        {parent_id} --> {block_id}')
+        _add_tag_nodes(task, block_id, lines, nodes)
+        _add_become_node(task, block_id, lines, nodes)
         task_counter += 1
         for bt in task.get("block_tasks", []):
             task_counter = _process_task(
@@ -245,6 +260,8 @@ def _process_task(
     nodes.tasks.append(task_id)
     lines.append(f'        {task_id}["{full_label}"]')
     lines.append(f'        {parent_id} --> {task_id}')
+    _add_tag_nodes(task, task_id, lines, nodes)
+    _add_become_node(task, task_id, lines, nodes)
 
     # Notify-Verbindungen
     for handler_name in task.get("notify", []):
@@ -273,3 +290,7 @@ def _apply_classes(lines: list, nodes: DiagramNodes) -> None:
         lines.append(f'    class {",".join(nodes.handlers)} handlerClass')
     if nodes.includes:
         lines.append(f'    class {",".join(nodes.includes)} includeClass')
+    if nodes.tags:
+        lines.append(f'    class {",".join(nodes.tags)} tagClass')
+    if nodes.becomes:
+        lines.append(f'    class {",".join(nodes.becomes)} becomeClass')

@@ -5,6 +5,8 @@ import pytest
 from ansible_parser import AnsibleData
 from mermaid_generator import (
     DiagramNodes,
+    _add_become_node,
+    _add_tag_nodes,
     _apply_classes,
     _build_task_label,
     _process_task,
@@ -171,23 +173,25 @@ class TestProcessTask:
     def test_task_with_tags(self):
         task = {"name": "Tagged", "type": "task", "tags": ["deploy", "web"]}
         lines, nodes, connections, counter = self._run(task)
-        label_line = [l for l in lines if "Tagged" in l][0]
-        assert "fa:fa-tags" in label_line
-        assert "deploy" in label_line
+        joined = "\n".join(lines)
+        assert "fa:fa-tags deploy, web" in joined
+        assert len(nodes.tags) == 1
+        assert any("-.-" in l for l in lines)
 
     def test_task_with_become(self):
         task = {"name": "Privileged", "type": "task", "become": True}
         lines, nodes, connections, counter = self._run(task)
-        label_line = [l for l in lines if "Privileged" in l][0]
-        assert "fa:fa-key" in label_line
-        assert "root" in label_line
+        joined = "\n".join(lines)
+        assert "fa:fa-key root" in joined
+        assert len(nodes.becomes) == 1
+        assert any("-.-" in l for l in lines)
 
     def test_task_with_become_user(self):
         task = {"name": "As postgres", "type": "task", "become": True, "become_user": "postgres"}
         lines, nodes, connections, counter = self._run(task)
-        label_line = [l for l in lines if "As postgres" in l][0]
-        assert "fa:fa-key" in label_line
-        assert "postgres" in label_line
+        joined = "\n".join(lines)
+        assert "fa:fa-key postgres" in joined
+        assert len(nodes.becomes) == 1
 
     def test_block_with_when(self):
         task = {
@@ -199,6 +203,22 @@ class TestProcessTask:
         lines, nodes, connections, counter = self._run(task)
         block_line = [l for l in lines if "Conditional block" in l][0]
         assert "fa:fa-question" in block_line
+
+    def test_block_with_tags_and_become(self):
+        task = {
+            "name": "Full block",
+            "type": "block",
+            "tags": ["setup"],
+            "become": True,
+            "become_user": "deploy",
+            "block_tasks": [{"name": "Step", "type": "task"}]
+        }
+        lines, nodes, connections, counter = self._run(task)
+        joined = "\n".join(lines)
+        assert "fa:fa-tags setup" in joined
+        assert "fa:fa-key deploy" in joined
+        assert len(nodes.tags) == 1
+        assert len(nodes.becomes) == 1
 
     def test_task_all_attributes(self):
         task = {
@@ -212,8 +232,11 @@ class TestProcessTask:
         lines, nodes, connections, counter = self._run(task)
         label_line = [l for l in lines if "Full task" in l][0]
         assert "fa:fa-question" in label_line
-        assert "fa:fa-tags" in label_line
-        assert "fa:fa-key" in label_line
+        joined = "\n".join(lines)
+        assert "fa:fa-tags deploy" in joined
+        assert "fa:fa-key root" in joined
+        assert len(nodes.tags) == 1
+        assert len(nodes.becomes) == 1
 
 
 # ============================================================
@@ -236,30 +259,83 @@ class TestBuildTaskLabel:
         label = _build_task_label(task, "Task")
         assert "a AND b" in label
 
-    def test_tags(self):
+    def test_tags_not_in_label(self):
         task = {"tags": ["deploy", "web"]}
         label = _build_task_label(task, "Task")
-        assert "deploy, web" in label
+        assert label == "Task"
 
-    def test_become_default_root(self):
+    def test_become_not_in_label(self):
         task = {"become": True}
         label = _build_task_label(task, "Task")
-        assert "fa:fa-key root" in label
+        assert label == "Task"
 
-    def test_become_custom_user(self):
-        task = {"become": True, "become_user": "postgres"}
-        label = _build_task_label(task, "Task")
-        assert "fa:fa-key postgres" in label
-
-    def test_all_combined(self):
+    def test_only_when_in_label(self):
         task = {"when": ["cond"], "tags": ["t1"], "become": True, "become_user": "deploy"}
         label = _build_task_label(task, "Base")
         parts = label.split("<br/>")
-        assert len(parts) == 4
+        assert len(parts) == 2
         assert parts[0] == "Base"
         assert "when:" in parts[1]
-        assert "t1" in parts[2]
-        assert "deploy" in parts[3]
+
+
+# ============================================================
+# _add_tag_nodes / _add_become_node
+# ============================================================
+
+class TestAddTagNodes:
+    def test_creates_tag_node(self):
+        task = {"tags": ["deploy", "web"]}
+        lines = []
+        nodes = DiagramNodes()
+        _add_tag_nodes(task, "task_0", lines, nodes)
+        assert len(nodes.tags) == 1
+        joined = "\n".join(lines)
+        assert "fa:fa-tags deploy, web" in joined
+        assert "-.-" in joined
+
+    def test_no_tags(self):
+        task = {"name": "No tags"}
+        lines = []
+        nodes = DiagramNodes()
+        _add_tag_nodes(task, "task_0", lines, nodes)
+        assert len(nodes.tags) == 0
+        assert lines == []
+
+    def test_single_tag(self):
+        task = {"tags": ["setup"]}
+        lines = []
+        nodes = DiagramNodes()
+        _add_tag_nodes(task, "t1", lines, nodes)
+        joined = "\n".join(lines)
+        assert "fa:fa-tags setup" in joined
+
+
+class TestAddBecomeNode:
+    def test_creates_become_node(self):
+        task = {"become": True, "become_user": "postgres"}
+        lines = []
+        nodes = DiagramNodes()
+        _add_become_node(task, "task_0", lines, nodes)
+        assert len(nodes.becomes) == 1
+        joined = "\n".join(lines)
+        assert "fa:fa-key postgres" in joined
+        assert "-.-" in joined
+
+    def test_default_root(self):
+        task = {"become": True}
+        lines = []
+        nodes = DiagramNodes()
+        _add_become_node(task, "task_0", lines, nodes)
+        joined = "\n".join(lines)
+        assert "fa:fa-key root" in joined
+
+    def test_no_become(self):
+        task = {"name": "No become"}
+        lines = []
+        nodes = DiagramNodes()
+        _add_become_node(task, "task_0", lines, nodes)
+        assert len(nodes.becomes) == 0
+        assert lines == []
 
 
 # ============================================================
@@ -276,7 +352,9 @@ class TestApplyClasses:
             roles={"r1"},
             tasks=["t1"],
             handlers={"hd1"},
-            includes={"i1"}
+            includes={"i1"},
+            tags={"tag1"},
+            becomes={"b1"}
         )
         _apply_classes(lines, nodes)
         text = "\n".join(lines)
@@ -287,6 +365,8 @@ class TestApplyClasses:
         assert "taskClass" in text
         assert "handlerClass" in text
         assert "includeClass" in text
+        assert "tagClass" in text
+        assert "becomeClass" in text
 
     def test_empty_nodes(self):
         lines = []
@@ -451,18 +531,21 @@ class TestGenerateDiagram:
         data.playbooks["/tmp/deploy.yml"]["plays"][0]["become_user"] = "deploy"
         diagram = generate_diagram(data)
         assert "fa:fa-key deploy" in diagram
+        assert "becomeClass" in diagram
 
     def test_play_tags_in_diagram(self):
         data = self._minimal_data()
         data.playbooks["/tmp/deploy.yml"]["plays"][0]["tags"] = ["production"]
         diagram = generate_diagram(data)
         assert "fa:fa-tags production" in diagram
+        assert "tagClass" in diagram
 
     def test_play_become_default_root(self):
         data = self._minimal_data()
         data.playbooks["/tmp/deploy.yml"]["plays"][0]["become"] = True
         diagram = generate_diagram(data)
         assert "fa:fa-key root" in diagram
+        assert "becomeClass" in diagram
 
     def test_task_when_in_diagram(self):
         data = self._minimal_data()
@@ -472,6 +555,26 @@ class TestGenerateDiagram:
         diagram = generate_diagram(data)
         assert "fa:fa-question" in diagram
         assert "when:" in diagram
+
+    def test_task_tags_separate_node(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["tasks"] = [
+            {"name": "Tagged task", "type": "task", "tags": ["deploy"]}
+        ]
+        diagram = generate_diagram(data)
+        assert "fa:fa-tags deploy" in diagram
+        assert "-.-" in diagram
+        assert "tagClass" in diagram
+
+    def test_task_become_separate_node(self):
+        data = self._minimal_data()
+        data.playbooks["/tmp/deploy.yml"]["plays"][0]["tasks"] = [
+            {"name": "Privileged task", "type": "task", "become": True, "become_user": "postgres"}
+        ]
+        diagram = generate_diagram(data)
+        assert "fa:fa-key postgres" in diagram
+        assert "-.-" in diagram
+        assert "becomeClass" in diagram
 
     def test_class_assignments(self):
         data = self._minimal_data()

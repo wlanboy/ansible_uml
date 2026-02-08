@@ -2,6 +2,7 @@
 
 import glob
 import os
+import re
 import yaml
 import logging
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ class AnsibleData:
     playbooks: dict[str, dict] = field(default_factory=dict)
     roles: set[str] = field(default_factory=set)
     role_tasks: dict[str, list[dict]] = field(default_factory=dict)
+    role_dependencies: dict[str, list[str]] = field(default_factory=dict)
 
 
 def find_role_tasks(repo_path: str, role_name: str) -> list[dict]:
@@ -33,6 +35,33 @@ def find_role_tasks(repo_path: str, role_name: str) -> list[dict]:
                         return tasks
             except (yaml.YAMLError, IOError) as e:
                 logger.warning(f"Konnte Role nicht laden: {role_file} - {e}")
+    return []
+
+
+def find_role_dependencies(repo_path: str, role_name: str) -> list[str]:
+    """Sucht die Abhängigkeiten einer Rolle in meta/main.yml."""
+    meta_paths = [
+        f"{repo_path}/**/roles/{role_name}/meta/main.yml",
+        f"{repo_path}/**/roles/{role_name}/meta/main.yaml",
+    ]
+    for pattern in meta_paths:
+        for meta_file in glob.glob(pattern, recursive=True):
+            try:
+                with open(meta_file, encoding="utf-8") as f:
+                    meta = yaml.safe_load(f)
+                    if meta and isinstance(meta, dict):
+                        deps = meta.get("dependencies", [])
+                        result = []
+                        for dep in deps or []:
+                            if isinstance(dep, dict):
+                                name = dep.get("role") or dep.get("name")
+                            else:
+                                name = str(dep)
+                            if name:
+                                result.append(name)
+                        return result
+            except (yaml.YAMLError, IOError) as e:
+                logger.warning(f"Konnte Meta nicht laden: {meta_file} - {e}")
     return []
 
 
@@ -58,31 +87,79 @@ def load_included_tasks(repo_path: str, task_file: str, base_path: str) -> list[
     return []
 
 
-def parse_inventory(inv_path: str) -> dict[str, list[str]]:
-    """Parst ein Inventory und gibt Groups mit Hosts zurück."""
-    groups = {}
+def _parse_yaml_group(groups: dict, group_name: str, content: dict) -> None:
+    """Rekursiv YAML-Inventory-Gruppen parsen, inkl. children."""
+    if content is None or not isinstance(content, dict):
+        groups[group_name] = []
+        return
 
+    hosts = content.get("hosts", {})
+    groups[group_name] = list(hosts.keys()) if hosts and isinstance(hosts, dict) else []
+
+    children = content.get("children", {})
+    if children and isinstance(children, dict):
+        for child_name, child_content in children.items():
+            _parse_yaml_group(groups, child_name, child_content)
+
+
+def parse_ini_inventory(inv_path: str) -> dict[str, list[str]]:
+    """Parst ein INI-Format Inventory."""
+    groups = {}
+    current_group = None
+    current_section = "hosts"
+
+    with open(inv_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith(';'):
+                continue
+
+            match = re.match(r'^\[([^:\]]+)(?::(\w+))?\]$', line)
+            if match:
+                current_group = match.group(1)
+                current_section = match.group(2) or "hosts"
+                if current_group not in groups:
+                    groups[current_group] = []
+                continue
+
+            if current_group is None:
+                continue
+
+            if current_section == "hosts":
+                host = line.split()[0]
+                if host:
+                    groups[current_group].append(host)
+            elif current_section == "children":
+                child_group = line.split()[0]
+                if child_group not in groups:
+                    groups[child_group] = []
+
+    return groups
+
+
+def parse_inventory(inv_path: str) -> dict[str, list[str]]:
+    """Parst ein Inventory (YAML oder INI) und gibt Groups mit Hosts zurück."""
+    # Versuche YAML zu parsen
     try:
         with open(inv_path, encoding="utf-8") as f:
             inv_data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise ValueError(f"Ungültiges YAML in {inv_path}: {e}")
 
-    if not inv_data or not isinstance(inv_data, dict):
-        logger.warning(f"Leeres oder ungültiges Inventory: {inv_path}")
-        return groups
+        if inv_data and isinstance(inv_data, dict):
+            groups = {}
+            for group, content in inv_data.items():
+                _parse_yaml_group(
+                    groups, group,
+                    content if isinstance(content, dict) else {}
+                )
+            return groups
+    except yaml.YAMLError:
+        pass
 
-    for group, content in inv_data.items():
-        groups[group] = []
-
-        if content is None or not isinstance(content, dict):
-            continue
-
-        hosts = content.get("hosts", {})
-        if hosts:
-            groups[group] = list(hosts.keys())
-
-    return groups
+    # Fallback: INI-Format
+    try:
+        return parse_ini_inventory(inv_path)
+    except IOError as e:
+        raise ValueError(f"Konnte Inventory nicht laden: {inv_path}: {e}")
 
 
 def parse_playbook(pb_path: str, repo_path: str) -> dict:
@@ -90,7 +167,8 @@ def parse_playbook(pb_path: str, repo_path: str) -> dict:
     result = {
         "name": os.path.basename(pb_path),
         "path": pb_path,
-        "plays": []
+        "plays": [],
+        "imported_playbooks": []
     }
 
     try:
@@ -105,6 +183,15 @@ def parse_playbook(pb_path: str, repo_path: str) -> dict:
 
     for play in pb_data:
         if not isinstance(play, dict):
+            continue
+
+        # import_playbook erkennen
+        import_pb = play.get("import_playbook")
+        if import_pb:
+            resolved = os.path.normpath(
+                os.path.join(os.path.dirname(pb_path), import_pb)
+            )
+            result["imported_playbooks"].append(resolved)
             continue
 
         play_info = {
@@ -149,6 +236,26 @@ def extract_task_info(task: dict, repo_path: str, base_path: str) -> dict:
         "type": "task"
     }
 
+    # notify extrahieren
+    notify = task.get("notify")
+    if notify:
+        if isinstance(notify, str):
+            task_info["notify"] = [notify]
+        elif isinstance(notify, list):
+            task_info["notify"] = notify
+
+    # block / rescue / always
+    if "block" in task:
+        task_info["type"] = "block"
+        task_info["block_tasks"] = []
+        for section in ["block", "rescue", "always"]:
+            for t in task.get(section, []) or []:
+                if isinstance(t, dict):
+                    task_info["block_tasks"].append(
+                        extract_task_info(t, repo_path, base_path)
+                    )
+        return task_info
+
     # include_role / import_role
     role_info = task.get("include_role") or task.get("import_role")
     if role_info:
@@ -177,6 +284,17 @@ def extract_task_info(task: dict, repo_path: str, base_path: str) -> dict:
     return task_info
 
 
+def _collect_roles_from_tasks(tasks: list[dict], roles: set[str]) -> None:
+    """Sammelt Rollen aus Tasks rekursiv (inkl. Blocks)."""
+    for task in tasks:
+        if task["type"] == "role":
+            roles.add(task["role_name"])
+        elif task["type"] == "block":
+            _collect_roles_from_tasks(task.get("block_tasks", []), roles)
+        elif task["type"] == "include":
+            _collect_roles_from_tasks(task.get("included_tasks", []), roles)
+
+
 def parse_all(inventory_paths: list[str], playbook_paths: list[str], repo_path: str) -> AnsibleData:
     """Parst alle Inventories und Playbooks."""
     data = AnsibleData()
@@ -190,8 +308,16 @@ def parse_all(inventory_paths: list[str], playbook_paths: list[str], repo_path: 
             logger.error(str(e))
             raise
 
-    # Playbooks parsen
-    for pb_path in playbook_paths:
+    # Playbooks parsen (inkl. import_playbook-Auflösung)
+    parsed_paths = set()
+    pending = list(playbook_paths)
+
+    while pending:
+        pb_path = pending.pop(0)
+        if pb_path in parsed_paths:
+            continue
+        parsed_paths.add(pb_path)
+
         try:
             pb_data = parse_playbook(pb_path, repo_path)
             data.playbooks[pb_path] = pb_data
@@ -200,18 +326,30 @@ def parse_all(inventory_paths: list[str], playbook_paths: list[str], repo_path: 
             for play in pb_data["plays"]:
                 for role_name in play["roles"]:
                     data.roles.add(role_name)
+                _collect_roles_from_tasks(play["tasks"], data.roles)
 
-                # Roles aus Tasks sammeln
-                for task in play["tasks"]:
-                    if task["type"] == "role":
-                        data.roles.add(task["role_name"])
+            # Importierte Playbooks zur Queue hinzufügen
+            for imp_path in pb_data.get("imported_playbooks", []):
+                if os.path.exists(imp_path) and imp_path not in parsed_paths:
+                    pending.append(imp_path)
 
         except ValueError as e:
             logger.error(str(e))
             raise
 
-    # Role-Tasks laden
-    for role_name in data.roles:
-        data.role_tasks[role_name] = find_role_tasks(repo_path, role_name)
+    # Role-Tasks und Dependencies laden (transitiv)
+    all_roles = set(data.roles)
+    processed_roles = set()
+
+    while all_roles - processed_roles:
+        for role_name in list(all_roles - processed_roles):
+            processed_roles.add(role_name)
+            data.role_tasks[role_name] = find_role_tasks(repo_path, role_name)
+            deps = find_role_dependencies(repo_path, role_name)
+            if deps:
+                data.role_dependencies[role_name] = deps
+                for dep in deps:
+                    all_roles.add(dep)
+                    data.roles.add(dep)
 
     return data

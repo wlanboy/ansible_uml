@@ -42,19 +42,50 @@ async def scan_repo(request: Request, repo_input: str = Form(...)):
             except git.exc.GitCommandError:
                 repo.git.checkout("master")
 
-        inventories = [
-            f for f in glob.glob(f"{repo_path}/**/inventory/*", recursive=True)
-            if os.path.isfile(f)
+        # Inventories suchen (mehrere Patterns)
+        inventory_patterns = [
+            f"{repo_path}/**/inventory/*",
+            f"{repo_path}/**/inventories/*",
+            f"{repo_path}/**/inventory/**/*",
+            f"{repo_path}/**/inventories/**/*",
         ]
+        inventories = set()
+        for pattern in inventory_patterns:
+            for f in glob.glob(pattern, recursive=True):
+                if os.path.isfile(f) and '/group_vars/' not in f and '/host_vars/' not in f:
+                    inventories.add(f)
 
+        # Hosts-Dateien im Root
+        for name in ["hosts", "hosts.yml", "hosts.yaml", "hosts.ini"]:
+            path = os.path.join(repo_path, name)
+            if os.path.isfile(path):
+                inventories.add(path)
+
+        inventories = sorted(inventories)
+
+        # Playbooks suchen (mehrere Patterns, inkl. .yaml und Root)
+        playbook_patterns = [
+            f"{repo_path}/**/playbooks/*.yml",
+            f"{repo_path}/**/playbooks/*.yaml",
+            f"{repo_path}/*.yml",
+            f"{repo_path}/*.yaml",
+        ]
         playbooks = []
-        for f in glob.glob(f"{repo_path}/**/playbooks/*.yml", recursive=True):
-            try:
-                with open(f, encoding="utf-8") as file:
-                    if "hosts:" in file.read():
-                        playbooks.append(f)
-            except (IOError, UnicodeDecodeError) as e:
-                logger.warning(f"Konnte Datei nicht lesen: {f} - {e}")
+        seen = set()
+        for pattern in playbook_patterns:
+            for f in glob.glob(pattern, recursive=True):
+                if f in seen:
+                    continue
+                if '/inventory/' in f or '/inventories/' in f or '/roles/' in f:
+                    continue
+                seen.add(f)
+                try:
+                    with open(f, encoding="utf-8") as file:
+                        content = file.read()
+                        if "hosts:" in content or "import_playbook:" in content:
+                            playbooks.append(f)
+                except (IOError, UnicodeDecodeError) as e:
+                    logger.warning(f"Konnte Datei nicht lesen: {f} - {e}")
 
         logger.info(f"Gefundene Inventories: {inventories}")
         logger.info(f"Gefundene Playbooks: {playbooks}")

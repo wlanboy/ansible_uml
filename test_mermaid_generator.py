@@ -1,7 +1,5 @@
 """Tests für mermaid_generator.py."""
 
-import pytest
-
 from ansible_parser import AnsibleData
 from mermaid_generator import (
     DiagramNodes,
@@ -49,6 +47,9 @@ class TestSanitize:
         result = sanitize("   ")
         assert isinstance(result, str)
 
+    def test_all_special_chars(self):
+        assert sanitize("!!!") == "_"
+
 
 # ============================================================
 # escape_label
@@ -84,7 +85,7 @@ class TestProcessTask:
         task = {"name": "Install nginx", "type": "task"}
         lines, nodes, connections, counter = self._run(task)
         assert counter == 1
-        assert any("Install nginx" in l for l in lines)
+        assert any("Install nginx" in line for line in lines)
         assert len(nodes.tasks) == 1
 
     def test_role_task(self):
@@ -106,7 +107,7 @@ class TestProcessTask:
         }
         lines, nodes, connections, counter = self._run(task)
         assert len(nodes.includes) == 1
-        assert any("extra_tasks" in l for l in lines)
+        assert any("extra_tasks" in line for line in lines)
 
     def test_block_task(self):
         task = {
@@ -118,9 +119,9 @@ class TestProcessTask:
             ]
         }
         lines, nodes, connections, counter = self._run(task)
-        assert any("Error handling" in l for l in lines)
-        assert any("Try step" in l for l in lines)
-        assert any("Rescue step" in l for l in lines)
+        assert any("Error handling" in line for line in lines)
+        assert any("Try step" in line for line in lines)
+        assert any("Rescue step" in line for line in lines)
         # Block-Node + 2 Kind-Tasks
         assert len(nodes.tasks) == 3
 
@@ -163,10 +164,17 @@ class TestProcessTask:
         _, _, _, counter = self._run(task)
         assert counter == 1
 
+    def test_role_task_without_role_name(self):
+        task = {"name": "Unnamed role", "type": "role"}
+        lines, nodes, connections, counter = self._run(task)
+        assert counter == 1
+        assert len(connections) == 0
+        assert len(nodes.roles) == 0
+
     def test_task_with_when(self):
         task = {"name": "Conditional", "type": "task", "when": ["ansible_os == 'Debian'"]}
         lines, nodes, connections, counter = self._run(task)
-        label_line = [l for l in lines if "Conditional" in l][0]
+        label_line = [line for line in lines if "Conditional" in line][0]
         assert "fa:fa-question" in label_line
         assert "when:" in label_line
 
@@ -176,7 +184,7 @@ class TestProcessTask:
         joined = "\n".join(lines)
         assert "fa:fa-tags deploy, web" in joined
         assert len(nodes.tags) == 1
-        assert any("-.-" in l for l in lines)
+        assert any("-.-" in line for line in lines)
 
     def test_task_with_become(self):
         task = {"name": "Privileged", "type": "task", "become": True}
@@ -184,7 +192,7 @@ class TestProcessTask:
         joined = "\n".join(lines)
         assert "fa:fa-key root" in joined
         assert len(nodes.becomes) == 1
-        assert any("-.-" in l for l in lines)
+        assert any("-.-" in line for line in lines)
 
     def test_task_with_become_user(self):
         task = {"name": "As postgres", "type": "task", "become": True, "become_user": "postgres"}
@@ -201,7 +209,7 @@ class TestProcessTask:
             "block_tasks": [{"name": "Step", "type": "task"}]
         }
         lines, nodes, connections, counter = self._run(task)
-        block_line = [l for l in lines if "Conditional block" in l][0]
+        block_line = [line for line in lines if "Conditional block" in line][0]
         assert "fa:fa-question" in block_line
 
     def test_block_with_tags_and_become(self):
@@ -230,7 +238,7 @@ class TestProcessTask:
             "become_user": "root"
         }
         lines, nodes, connections, counter = self._run(task)
-        label_line = [l for l in lines if "Full task" in l][0]
+        label_line = [line for line in lines if "Full task" in line][0]
         assert "fa:fa-question" in label_line
         joined = "\n".join(lines)
         assert "fa:fa-tags deploy" in joined

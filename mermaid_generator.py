@@ -4,7 +4,7 @@ import re
 import os
 import logging
 from dataclasses import dataclass, field
-from ansible_parser import AnsibleData, find_role_tasks
+from ansible_parser import AnsibleData
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def sanitize(text: str) -> str:
     return text
 
 
-def escape_label(text: str) -> str:
+def escape_label(text: object) -> str:
     """Escaped Anführungszeichen in Labels."""
     return str(text).replace('"', "'")
 
@@ -93,7 +93,6 @@ def generate_diagram(data: AnsibleData, layout: str = "LR", repo_path: str = "")
                 connections.append(f'    {group_id} -->|"runs"| {pb_id}')
 
             # Play-Level Tags/Become als eigene Nodes
-            play_node_id = f"{pb_id}_play_{play_idx}"
             _add_tag_nodes(play, pb_id, lines, nodes)
             _add_become_node(play, pb_id, lines, nodes)
 

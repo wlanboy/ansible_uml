@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import git
+from git.exc import GitCommandError
 import os
 import tempfile
 import shutil
@@ -39,7 +40,7 @@ async def scan_repo(request: Request, repo_input: str = Form(...)):
             repo = git.Repo.clone_from(repo_input, repo_path)
             try:
                 repo.git.checkout("main")
-            except git.exc.GitCommandError:
+            except GitCommandError:
                 repo.git.checkout("master")
 
         # Inventories suchen (mehrere Patterns)
@@ -96,7 +97,7 @@ async def scan_repo(request: Request, repo_input: str = Form(...)):
             "playbooks": playbooks,
             "repo_path": repo_path
         })
-    except git.exc.GitCommandError as e:
+    except GitCommandError as e:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
         logger.error(f"Git-Fehler: {e}")

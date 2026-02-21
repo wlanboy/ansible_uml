@@ -6,7 +6,6 @@ import pytest
 import yaml
 
 from ansible_parser import (
-    AnsibleData,
     _collect_roles_from_tasks,
     _parse_yaml_group,
     extract_task_info,
@@ -463,6 +462,12 @@ class TestLoadIncludedTasks:
         result = load_included_tasks(tmp_dir, "bad.yml", os.path.join(tmp_dir, "pb.yml"))
         assert result == []
 
+    def test_non_list_yaml(self, tmp_dir):
+        tasks_file = os.path.join(tmp_dir, "dict_tasks.yml")
+        _write_yaml(tasks_file, {"not": "a list"})
+        result = load_included_tasks(tmp_dir, "dict_tasks.yml", os.path.join(tmp_dir, "pb.yml"))
+        assert result == []
+
 
 # ============================================================
 # find_role_tasks
@@ -498,6 +503,13 @@ class TestFindRoleTasks:
         os.makedirs(tasks_dir)
         _write_text(os.path.join(tasks_dir, "main.yml"), "")
         tasks = find_role_tasks(tmp_dir, "empty")
+        assert tasks == []
+
+    def test_non_list_yaml(self, tmp_dir):
+        tasks_dir = os.path.join(tmp_dir, "roles", "broken", "tasks")
+        os.makedirs(tasks_dir)
+        _write_yaml(os.path.join(tasks_dir, "main.yml"), {"not": "a list"})
+        tasks = find_role_tasks(tmp_dir, "broken")
         assert tasks == []
 
 
@@ -557,6 +569,25 @@ class TestFindRoleDependencies:
         })
         deps = find_role_dependencies(tmp_dir, "app")
         assert deps == ["base"]
+
+    def test_non_dict_yaml(self, tmp_dir):
+        meta_dir = os.path.join(tmp_dir, "roles", "broken", "meta")
+        os.makedirs(meta_dir)
+        _write_yaml(os.path.join(meta_dir, "main.yml"), ["not", "a", "dict"])
+        deps = find_role_dependencies(tmp_dir, "broken")
+        assert deps == []
+
+    def test_dep_dict_without_name_or_role(self, tmp_dir):
+        meta_dir = os.path.join(tmp_dir, "roles", "app", "meta")
+        os.makedirs(meta_dir)
+        _write_yaml(os.path.join(meta_dir, "main.yml"), {
+            "dependencies": [
+                {"tags": ["base"]},
+                "valid_role"
+            ]
+        })
+        deps = find_role_dependencies(tmp_dir, "app")
+        assert deps == ["valid_role"]
 
 
 # ============================================================
@@ -717,6 +748,25 @@ class TestParsePlaybook:
         task = play["tasks"][0]
         assert task["when"] == ["install_pkg"]
         assert task["tags"] == ["packages"]
+
+    def test_non_dict_play_skipped(self, tmp_dir):
+        pb = ["not a dict", {"hosts": "all", "tasks": []}]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert len(result["plays"]) == 1
+        assert result["plays"][0]["hosts"] == "all"
+
+    def test_handler_without_name(self, tmp_dir):
+        pb = [{
+            "hosts": "all",
+            "tasks": [],
+            "handlers": [{"service": {"name": "nginx", "state": "restarted"}}]
+        }]
+        path = os.path.join(tmp_dir, "pb.yml")
+        _write_yaml(path, pb)
+        result = parse_playbook(path, tmp_dir)
+        assert result["plays"][0]["handlers"] == ["unnamed_handler"]
 
 
 # ============================================================

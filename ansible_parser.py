@@ -87,7 +87,7 @@ def load_included_tasks(repo_path: str, task_file: str, base_path: str) -> list[
     return []
 
 
-def _parse_yaml_group(groups: dict, group_name: str, content: dict) -> None:
+def _parse_yaml_group(groups: dict, group_name: str, content: object) -> None:
     """Rekursiv YAML-Inventory-Gruppen parsen, inkl. children."""
     if content is None or not isinstance(content, dict):
         groups[group_name] = []

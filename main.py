@@ -24,7 +24,7 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Startseite anzeigen."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.post("/scan", response_class=HTMLResponse)
@@ -91,8 +91,7 @@ async def scan_repo(request: Request, repo_input: str = Form(...)):
         logger.info(f"Gefundene Inventories: {inventories}")
         logger.info(f"Gefundene Playbooks: {playbooks}")
 
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "inventories": inventories,
             "playbooks": playbooks,
             "repo_path": repo_path
@@ -101,16 +100,14 @@ async def scan_repo(request: Request, repo_input: str = Form(...)):
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
         logger.error(f"Git-Fehler: {e}")
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "error": f"Git-Fehler: {e}"
         })
     except Exception as e:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
         logger.error(f"Unerwarteter Fehler: {e}")
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "error": f"Fehler beim Scannen: {e}"
         })
 
@@ -133,23 +130,20 @@ async def generate_diagram_route(
 
         logger.info(f"Generiertes Mermaid-Diagramm mit {len(diagram.splitlines())} Zeilen")
 
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "diagram": diagram,
             "repo_path": repo_path,
             "layout": layout
         })
     except ValueError as e:
         logger.error(f"Parsing-Fehler: {e}")
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "error": str(e),
             "repo_path": repo_path
         })
     except Exception as e:
         logger.error(f"Fehler beim Generieren: {e}")
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "error": f"Fehler beim Generieren: {e}",
             "repo_path": repo_path
         })
